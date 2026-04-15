@@ -1,6 +1,43 @@
 // Zellij Configuration for macOS
 // secondary_modifier: Shift+Cmd
 
+// === SHARED CONFIG (merged from config.shared.kdl) ===
+plugins {
+    about location="zellij:about"
+    compact-bar location="zellij:compact-bar"
+    configuration location="zellij:configuration"
+    filepicker location="zellij:strider" {
+        cwd "/"
+    }
+    harpoon location="https://github.com/Nacho114/harpoon/releases/download/v0.3.0/harpoon.wasm"
+    monocle location="https://github.com/imsnif/monocle/releases/download/v0.100.2/monocle.wasm"
+    plugin-manager location="zellij:plugin-manager"
+    session-manager location="zellij:session-manager"
+    status-bar location="zellij:status-bar"
+    strider location="zellij:strider"
+    tab-bar location="zellij:tab-bar"
+    welcome-screen location="zellij:session-manager" {
+        welcome_screen true
+    }
+    zellij-forgot location="https://github.com/karimould/zellij-forgot/releases/download/v0.4.2/zellij_forgot.wasm"
+}
+
+load_plugins {
+    harpoon
+    monocle
+    zellij:link
+    zellij-forgot
+}
+
+web_client {
+    font "monospace"
+}
+
+theme "ao"
+default_mode "locked"
+default_shell "zsh"
+// === END SHARED CONFIG ===
+
 secondary_modifier "Shift+Cmd"
 
 keybinds clear-defaults=true {
