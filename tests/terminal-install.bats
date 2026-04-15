@@ -58,7 +58,6 @@ teardown() {
     [ "$status" -eq 0 ]
 
     [ -f "${XDG_CONFIG_HOME}/alacritty/alacritty.toml" ]
-    [ -f "${XDG_CONFIG_HOME}/alacritty/dank-theme.toml" ]
 }
 
 @test "existing terminal config is backed up with timestamp" {
@@ -105,17 +104,4 @@ teardown() {
     run "$script" --terminal-only
     [ "$status" -eq 0 ]
     [ -d "${XDG_CONFIG_HOME}/foot" ]
-}
-
-@test "alacritty.toml imports dank-theme.toml" {
-    local repo_dir
-    repo_dir="$(get_repo_dir)"
-    local script="${repo_dir}/install.sh"
-
-    export XDG_CONFIG_HOME="${HOME}/.config"
-
-    run "$script" darwin --terminal-only
-    [ "$status" -eq 0 ]
-
-    grep -q 'import.*dank-theme.toml' "${XDG_CONFIG_HOME}/alacritty/alacritty.toml"
 }

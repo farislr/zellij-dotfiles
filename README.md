@@ -13,9 +13,8 @@ Cross-platform Zellij configuration with OS-specific keybindings for Linux and m
 ├── foot/                 # Foot terminal config (Linux)
 │   ├── foot.ini
 │   └── dank-colors.ini
-├── alacritty/            # Alacritty terminal config (macOS)
-│   ├── alacritty.toml
-│   └── dank-theme.toml
+├── alacritty/           # Alacritty terminal config (macOS)
+│   └── alacritty.toml
 ├── tests/                # Test suite
 │   ├── terminal-install.bats
 │   └── test_helper.bash
@@ -86,7 +85,7 @@ After editing, run `./install.sh` to apply.
 
 **Foot (Linux)**: Edit `foot/foot.ini` and `foot/dank-colors.ini` in this repo, then run `./install.sh --terminal-only`
 
-**Alacritty (macOS)**: Edit `alacritty/alacritty.toml` and `alacritty/dank-theme.toml` in this repo, then run `./install.sh --terminal-only`
+**Alacritty (macOS)**: Edit `alacritty/alacritty.toml` in this repo, then run `./install.sh --terminal-only`
 
 ## Keybindings Summary
 

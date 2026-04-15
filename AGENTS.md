@@ -21,8 +21,7 @@ Zellij user configuration with OS-specific keybindings. Installs zellij config +
 │   ├── foot.ini
 │   └── dank-colors.ini
 ├── alacritty/           # Alacritty terminal config (macOS)
-│   ├── alacritty.toml
-│   └── dank-theme.toml
+│   └── alacritty.toml
 └── tests/               # bats test suite
     ├── terminal-install.bats
     └── test_helper.bash
