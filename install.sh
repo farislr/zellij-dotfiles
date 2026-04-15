@@ -1,17 +1,22 @@
 #!/usr/bin/env bash
 #
 # Zellij Config Installer
-# Installs OS-specific Zellij configuration via symlink
+# Installs OS-specific Zellij configuration via symlink and optional binary download
 #
 # Usage:
-#   ./install.sh          # Auto-detect OS
-#   ./install.sh linux    # Force Linux config
-#   ./install.sh darwin   # Force macOS config
+#   ./install.sh                            # Auto-detect OS, install config + latest binary
+#   ./install.sh linux                      # Force Linux config + binary
+#   ./install.sh darwin                     # Force macOS config + binary
+#   ./install.sh --config-only              # Install config only (skip binary)
+#   ./install.sh --binary-only              # Install latest binary only (skip config)
+#   ./install.sh --version v0.40.0          # Install config + pinned binary version
+#   ./install.sh --binary-dir "$HOME/bin"    # Custom binary install directory
 #
 # The script will:
 #   1. Detect OS (or use provided argument)
 #   2. Backup existing config if present
 #   3. Symlink the appropriate OS-specific config to ~/.config/zellij/config.kdl
+#   4. Download and install the Zellij binary from GitHub Releases
 #
 
 set -euo pipefail
@@ -20,6 +25,10 @@ set -euo pipefail
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/zellij"
 CONFIG_FILE="config.kdl"
 REPO_DIR="$(cd "$(dirname "$0")" && pwd)"
+BINARY_DIR="$HOME/.local/bin"
+ZELLIJ_VERSION=""
+INSTALL_BINARY=true
+INSTALL_CONFIG=true
 
 # Colors for output
 RED='\033[0;31m'
@@ -42,18 +51,25 @@ log_error() {
 
 # Show usage
 usage() {
-    echo "Usage: $0 [linux|darwin]"
+    echo "Usage: $0 [linux|darwin] [--config-only] [--binary-only] [--version VERSION] [--binary-dir PATH]"
     echo ""
     echo "Options:"
-    echo "  linux    Force Linux configuration (Alt as secondary modifier)"
-    echo "  darwin   Force macOS configuration (Shift+Cmd as secondary modifier)"
-    echo "  (none)   Auto-detect OS"
+    echo "  linux              Force Linux configuration"
+    echo "  darwin             Force macOS configuration"
+    echo "  --config-only      Skip binary installation"
+    echo "  --binary-only      Install binary only (skip config)"
+    echo "  --version VERSION  Install specific Zellij version"
+    echo "  --binary-dir PATH  Install binary into PATH (default: $HOME/.local/bin)"
+    echo "  -h, --help         Show this help message"
+    echo ""
+    echo "Default: installs config + latest binary from GitHub Releases"
     exit 1
 }
 
 # Detect OS
 detect_os() {
-    local os="$(uname -s)"
+    local os
+    os="$(uname -s)"
     case "$os" in
         Linux*)
             echo "linux"
@@ -63,6 +79,24 @@ detect_os() {
             ;;
         *)
             log_error "Unsupported OS: $os"
+            exit 1
+            ;;
+    esac
+}
+
+# Detect CPU architecture
+detect_arch() {
+    local arch
+    arch="$(uname -m)"
+    case "$arch" in
+        x86_64|amd64)
+            echo "x86_64"
+            ;;
+        aarch64|arm64)
+            echo "aarch64"
+            ;;
+        *)
+            log_error "Unsupported architecture: $arch"
             exit 1
             ;;
     esac
@@ -85,11 +119,67 @@ os_to_config() {
     esac
 }
 
+# Map OS and architecture to Rust target triple
+os_to_rust_target() {
+    local os="$1"
+    local arch="$2"
+
+    case "$os:$arch" in
+        linux:x86_64)
+            echo "x86_64-unknown-linux-musl"
+            ;;
+        linux:aarch64)
+            echo "aarch64-unknown-linux-musl"
+            ;;
+        darwin:x86_64)
+            echo "x86_64-apple-darwin"
+            ;;
+        darwin:aarch64)
+            echo "aarch64-apple-darwin"
+            ;;
+        *)
+            log_error "Unsupported OS/architecture combination: $os/$arch"
+            exit 1
+            ;;
+    esac
+}
+
+# Get latest Zellij release version from GitHub API
+get_latest_version() {
+    local version=""
+
+    if ! command -v curl >/dev/null 2>&1; then
+        log_error "curl is required to install the Zellij binary"
+        exit 1
+    fi
+
+    version=$(curl -sL "https://api.github.com/repos/zellij-org/zellij/releases/latest" | grep -m1 '"tag_name":' | sed -E 's/.*"tag_name":[[:space:]]*"([^"]+)".*/\1/')
+
+    if [ -z "$version" ]; then
+        log_error "Failed to determine latest Zellij version from GitHub Releases"
+        exit 1
+    fi
+
+    echo "$version"
+}
+
+# Build GitHub Releases download URL
+build_download_url() {
+    local os="$1"
+    local arch="$2"
+    local version="$3"
+    local target=""
+
+    target=$(os_to_rust_target "$os" "$arch")
+    echo "https://github.com/zellij-org/zellij/releases/download/${version}/zellij-${target}.tar.gz"
+}
+
 # Create backup of existing config
 backup_existing() {
     local config_path="$1"
     if [ -e "$config_path" ]; then
-        local backup_path="${config_path}.backup.$(date +%Y%m%d-%H%M%S)"
+        local backup_path
+        backup_path="${config_path}.backup.$(date +%Y%m%d-%H%M%S)"
         log_info "Backing up existing config to: $backup_path"
         cp "$config_path" "$backup_path"
     fi
@@ -114,22 +204,151 @@ install_config() {
     ln -s "$src_file" "$target_link"
 }
 
+# Check for existing Zellij binary installation
+check_existing_binary() {
+    local binary_path=""
+    local binary_version=""
+
+    for binary_path in "$HOME/.local/bin/zellij" "/usr/local/bin/zellij"; do
+        if [ -x "$binary_path" ]; then
+            binary_version=$("$binary_path" --version 2>/dev/null || true)
+            echo "$binary_version"
+            return 0
+        fi
+    done
+
+    # shellcheck disable=SC2230
+    binary_path=$(which zellij 2>/dev/null || true)
+    if [ -n "$binary_path" ] && [ -x "$binary_path" ]; then
+        binary_version=$("$binary_path" --version 2>/dev/null || true)
+        echo "$binary_version"
+        return 0
+    fi
+
+    echo ""
+}
+
+# Install Zellij binary from GitHub Releases
+install_binary() {
+    local os="$1"
+    local version="$2"
+    local install_dir="$3"
+    local tmp_dir=""
+    local arch=""
+    local download_url=""
+    local archive_path=""
+    local install_path="${install_dir}/zellij"
+    local resolved_version="$version"
+    local existing_version=""
+    local backup_path=""
+
+    cleanup_binary_install() {
+        if [ -n "$tmp_dir" ] && [ -d "$tmp_dir" ]; then
+            rm -rf "$tmp_dir"
+        fi
+    }
+
+    if ! command -v curl >/dev/null 2>&1; then
+        log_error "curl is required to install the Zellij binary"
+        exit 1
+    fi
+
+    if ! command -v tar >/dev/null 2>&1; then
+        log_error "tar is required to install the Zellij binary"
+        exit 1
+    fi
+
+    existing_version=$(check_existing_binary)
+    if [ -n "$existing_version" ]; then
+        log_info "Existing Zellij binary detected: $existing_version"
+    fi
+
+    if [ -z "$resolved_version" ]; then
+        resolved_version=$(get_latest_version)
+        log_info "Resolved latest Zellij version: $resolved_version"
+    fi
+
+    arch=$(detect_arch)
+    download_url=$(build_download_url "$os" "$arch" "$resolved_version")
+
+    tmp_dir=$(mktemp -d)
+    archive_path="${tmp_dir}/zellij.tar.gz"
+    trap cleanup_binary_install RETURN
+
+    log_info "Downloading Zellij ${resolved_version} for ${os}/${arch}"
+    if ! curl -fL "$download_url" -o "$archive_path"; then
+        log_error "Failed to download Zellij from: $download_url"
+        exit 1
+    fi
+
+    log_info "Extracting archive"
+    tar -xzf "$archive_path" -C "$tmp_dir"
+
+    if [ ! -f "$tmp_dir/zellij" ]; then
+        log_error "Extracted archive does not contain zellij binary"
+        exit 1
+    fi
+
+    mkdir -p "$install_dir"
+
+    if [ -e "$install_path" ]; then
+        backup_path="${install_path}.backup.$(date +%Y%m%d-%H%M%S)"
+        log_info "Backing up existing binary to: $backup_path"
+        mv "$install_path" "$backup_path"
+    fi
+
+    log_info "Installing binary to: $install_path"
+    mv "$tmp_dir/zellij" "$install_path"
+    chmod +x "$install_path"
+
+    if ! "$install_path" --version >/dev/null 2>&1; then
+        log_error "Installed binary verification failed: $install_path --version"
+        exit 1
+    fi
+
+    log_info "Done! Zellij binary installed to: $install_path"
+    log_info "Installed version: $("$install_path" --version)"
+}
+
 # Main
 main() {
     local os=""
     local config_file=""
+    local arg=""
 
     # Parse arguments
-    if [ $# -eq 0 ]; then
-        os=$(detect_os)
-        log_info "Detected OS: $os"
-    elif [ $# -eq 1 ]; then
-        case "$1" in
-            linux|Linux|LINUX)
+    while [ $# -gt 0 ]; do
+        arg=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+        case "$arg" in
+            linux)
                 os="linux"
                 ;;
-            darwin|Darwin|DARWIN|macos|macOS|MACOS)
+            darwin|macos)
                 os="darwin"
+                ;;
+            --config-only)
+                INSTALL_BINARY=false
+                ;;
+            --binary-only)
+                INSTALL_BINARY=true
+                INSTALL_CONFIG=false
+                ;;
+            --version)
+                if [ $# -lt 2 ]; then
+                    log_error "Missing value for --version"
+                    usage
+                fi
+                ZELLIJ_VERSION="$2"
+                INSTALL_BINARY=true
+                shift
+                ;;
+            --binary-dir)
+                if [ $# -lt 2 ]; then
+                    log_error "Missing value for --binary-dir"
+                    usage
+                fi
+                BINARY_DIR="$2"
+                shift
                 ;;
             -h|--help|help)
                 usage
@@ -139,27 +358,38 @@ main() {
                 usage
                 ;;
         esac
-    else
-        usage
+        shift
+    done
+
+    if [ -z "$os" ]; then
+        os=$(detect_os)
+        log_info "Detected OS: $os"
     fi
 
-    config_file=$(os_to_config "$os")
+    if [ "$INSTALL_CONFIG" = true ]; then
+        config_file=$(os_to_config "$os")
 
-    # Verify config file exists
-    local src_path="$REPO_DIR/$config_file"
-    if [ ! -f "$src_path" ]; then
-        log_error "Config file not found: $src_path"
-        log_error "Make sure you're running this script from the dotfiles directory."
-        exit 1
+        # Verify config file exists
+        local src_path="$REPO_DIR/$config_file"
+        if [ ! -f "$src_path" ]; then
+            log_error "Config file not found: $src_path"
+            log_error "Make sure you're running this script from the dotfiles directory."
+            exit 1
+        fi
+
+        # Install config
+        local target_path="$CONFIG_DIR/$CONFIG_FILE"
+        log_info "Installing $os config: $config_file"
+        install_config "$src_path" "$target_path"
+
+        log_info "Done! Zellij config installed to: $target_path"
+        log_info "Restart Zellij or press Ctrl+G twice to reload configuration."
     fi
 
-    # Install
-    local target_path="$CONFIG_DIR/$CONFIG_FILE"
-    log_info "Installing $os config: $config_file"
-    install_config "$src_path" "$target_path"
-
-    log_info "Done! Zellij config installed to: $target_path"
-    log_info "Restart Zellij or press Ctrl+G twice to reload configuration."
+    if [ "$INSTALL_BINARY" = true ]; then
+        install_binary "$os" "$ZELLIJ_VERSION" "$BINARY_DIR"
+        log_info "Add $BINARY_DIR to PATH if it is not already available in your shell."
+    fi
 }
 
 main "$@"
