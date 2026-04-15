@@ -1,5 +1,5 @@
 // Zellij Configuration for macOS
-// secondary_modifier: Shift+Cmd
+// secondary_modifier: Super
 
 // === SHARED CONFIG (merged from config.shared.kdl) ===
 plugins {
@@ -38,7 +38,7 @@ default_mode "locked"
 default_shell "zsh"
 // === END SHARED CONFIG ===
 
-secondary_modifier "Shift+Cmd"
+secondary_modifier "Super"
 
 keybinds clear-defaults=true {
     locked {
