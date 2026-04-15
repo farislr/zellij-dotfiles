@@ -4,19 +4,22 @@
 # Installs OS-specific Zellij configuration via symlink and optional binary download
 #
 # Usage:
-#   ./install.sh                            # Auto-detect OS, install config + latest binary
-#   ./install.sh linux                      # Force Linux config + binary
-#   ./install.sh darwin                     # Force macOS config + binary
-#   ./install.sh --config-only              # Install config only (skip binary)
-#   ./install.sh --binary-only              # Install latest binary only (skip config)
-#   ./install.sh --version v0.40.0          # Install config + pinned binary version
-#   ./install.sh --binary-dir "$HOME/bin"    # Custom binary install directory
+#   ./install.sh                              # Auto-detect OS, install all (zellij + binary + terminal)
+#   ./install.sh linux                        # Force Linux (zellij + binary + terminal)
+#   ./install.sh darwin                       # Force macOS (zellij + binary + terminal)
+#   ./install.sh --config-only                # Zellij config only (skip binary + terminal)
+#   ./install.sh --binary-only                # Zellij binary only (skip config + terminal)
+#   ./install.sh --terminal-only              # Terminal config only (skip zellij)
+#   ./install.sh --no-terminal               # Skip terminal config
+#   ./install.sh --version v0.40.0            # Install config + binary + terminal (pinned version)
+#   ./install.sh --binary-dir "$HOME/bin"     # Custom binary install directory
 #
 # The script will:
 #   1. Detect OS (or use provided argument)
 #   2. Backup existing config if present
 #   3. Symlink the appropriate OS-specific config to ~/.config/zellij/config.kdl
 #   4. Download and install the Zellij binary from GitHub Releases
+#   5. Install terminal config (foot for Linux, alacritty for macOS)
 #
 
 set -euo pipefail
@@ -29,6 +32,7 @@ BINARY_DIR="$HOME/.local/bin"
 ZELLIJ_VERSION=""
 INSTALL_BINARY=true
 INSTALL_CONFIG=true
+INSTALL_TERMINAL=true
 
 # Colors for output
 RED='\033[0;31m'
@@ -51,18 +55,24 @@ log_error() {
 
 # Show usage
 usage() {
-    echo "Usage: $0 [linux|darwin] [--config-only] [--binary-only] [--version VERSION] [--binary-dir PATH]"
+    echo "Usage: $0 [linux|darwin] [options]"
     echo ""
     echo "Options:"
     echo "  linux              Force Linux configuration"
     echo "  darwin             Force macOS configuration"
-    echo "  --config-only      Skip binary installation"
-    echo "  --binary-only      Install binary only (skip config)"
+    echo "  --config-only      Install config only (skip binary + terminal)"
+    echo "  --binary-only      Install binary only (skip config + terminal)"
+    echo "  --terminal-only    Install terminal config only (skip zellij)"
+    echo "  --no-terminal      Skip terminal config installation"
     echo "  --version VERSION  Install specific Zellij version"
     echo "  --binary-dir PATH  Install binary into PATH (default: $HOME/.local/bin)"
     echo "  -h, --help         Show this help message"
     echo ""
-    echo "Default: installs config + latest binary from GitHub Releases"
+    echo "Default: installs zellij config + binary + terminal config"
+    echo ""
+    echo "Terminal config:"
+    echo "  Linux:   foot terminal config from \$REPO_DIR/foot/"
+    echo "  macOS:   alacritty terminal config from \$REPO_DIR/alacritty/"
     exit 1
 }
 
@@ -204,6 +214,96 @@ install_config() {
     ln -s "$src_file" "$target_link"
 }
 
+# Backup existing file
+backup_file() {
+    local file_path="$1"
+    if [ -e "$file_path" ]; then
+        local backup_path
+        backup_path="${file_path}.backup.$(date +%Y%m%d-%H%M%S)"
+        log_info "Backing up existing file to: $backup_path"
+        cp -a "$file_path" "$backup_path"
+    fi
+}
+
+# Install foot terminal config (Linux)
+install_foot_config() {
+    local src_dir="${REPO_DIR}/foot"
+    local target_dir="${XDG_CONFIG_HOME:-$HOME/.config}/foot"
+
+    if [ ! -d "$src_dir" ]; then
+        log_error "Foot config source not found: $src_dir"
+        exit 1
+    fi
+
+    mkdir -p "$target_dir"
+
+    for file in foot.ini dank-colors.ini; do
+        local src_file="${src_dir}/${file}"
+        local target_file="${target_dir}/${file}"
+
+        if [ ! -f "$src_file" ]; then
+            log_error "Source file not found: $src_file"
+            exit 1
+        fi
+
+        if [ -e "$target_file" ] || [ -L "$target_file" ]; then
+            backup_file "$target_file"
+            rm -f "$target_file"
+        fi
+
+        log_info "Installing $file to $target_file"
+        cp -a "$src_file" "$target_file"
+    done
+
+    log_info "Done! Foot config installed to: $target_dir"
+}
+
+# Install alacritty terminal config (macOS)
+install_alacritty_config() {
+    local src_dir="${REPO_DIR}/alacritty"
+    local target_dir="${XDG_CONFIG_HOME:-$HOME/.config}/alacritty"
+
+    if [ ! -d "$src_dir" ]; then
+        log_error "Alacritty config source not found: $src_dir"
+        exit 1
+    fi
+
+    mkdir -p "$target_dir"
+
+    for file in alacritty.toml dank-theme.toml; do
+        local src_file="${src_dir}/${file}"
+        local target_file="${target_dir}/${file}"
+
+        if [ ! -f "$src_file" ]; then
+            log_error "Source file not found: $src_file"
+            exit 1
+        fi
+
+        if [ -e "$target_file" ] || [ -L "$target_file" ]; then
+            backup_file "$target_file"
+            rm -f "$target_file"
+        fi
+
+        log_info "Installing $file to $target_file"
+        cp -a "$src_file" "$target_file"
+    done
+
+    log_info "Done! Alacritty config installed to: $target_dir"
+}
+
+# Install terminal config based on OS
+install_terminal_config() {
+    local os="$1"
+    case "$os" in
+        linux)
+            install_foot_config
+            ;;
+        darwin)
+            install_alacritty_config
+            ;;
+    esac
+}
+
 # Check for existing Zellij binary installation
 check_existing_binary() {
     local binary_path=""
@@ -328,10 +428,20 @@ main() {
                 ;;
             --config-only)
                 INSTALL_BINARY=false
+                INSTALL_TERMINAL=false
                 ;;
             --binary-only)
                 INSTALL_BINARY=true
                 INSTALL_CONFIG=false
+                INSTALL_TERMINAL=false
+                ;;
+            --terminal-only)
+                INSTALL_BINARY=false
+                INSTALL_CONFIG=false
+                INSTALL_TERMINAL=true
+                ;;
+            --no-terminal)
+                INSTALL_TERMINAL=false
                 ;;
             --version)
                 if [ $# -lt 2 ]; then
@@ -384,6 +494,11 @@ main() {
 
         log_info "Done! Zellij config installed to: $target_path"
         log_info "Restart Zellij or press Ctrl+G twice to reload configuration."
+    fi
+
+    if [ "$INSTALL_TERMINAL" = true ]; then
+        log_info "Installing terminal config for $os"
+        install_terminal_config "$os"
     fi
 
     if [ "$INSTALL_BINARY" = true ]; then

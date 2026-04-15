@@ -9,14 +9,23 @@ Cross-platform Zellij configuration with OS-specific keybindings for Linux and m
 ├── config.shared.kdl    # Plugins, load_plugins, web_client, global options
 ├── config.Linux.kdl     # Linux keybindings (secondary_modifier "Alt")
 ├── config.Darwin.kdl    # macOS keybindings (secondary_modifier "Shift+Cmd")
-├── install.sh            # OS-aware installer + optional binary download
+├── install.sh            # OS-aware installer (zellij + terminal config)
+├── foot/                 # Foot terminal config (Linux)
+│   ├── foot.ini
+│   └── dank-colors.ini
+├── alacritty/            # Alacritty terminal config (macOS)
+│   ├── alacritty.toml
+│   └── dank-theme.toml
+├── tests/                # Test suite
+│   ├── terminal-install.bats
+│   └── test_helper.bash
 └── README.md
 ```
 
 ## Installation
 
 ```bash
-# Clone and install (auto-detects OS)
+# Clone and install (auto-detects OS, installs zellij + terminal config)
 git clone https://github.com/farislr/zellij-dotfiles.git ~/.config/zellij
 cd ~/.config/zellij && ./install.sh
 
@@ -24,17 +33,43 @@ cd ~/.config/zellij && ./install.sh
 ./install.sh linux
 ./install.sh darwin
 
-# Config-only (skip binary)
-./install.sh --config-only
-
-# Install specific version
-./install.sh --version v0.40.0
+# Install options
+./install.sh --config-only      # Zellij config only (skip binary + terminal)
+./install.sh --binary-only      # Zellij binary only (skip config + terminal)
+./install.sh --terminal-only    # Terminal config only (skip zellij)
+./install.sh --no-terminal      # Skip terminal config
+./install.sh --version v0.40.0  # Install specific Zellij version
 ```
 
 The installer:
 1. Backs up existing config with timestamp (`config.kdl.backup.YYYYMMDD-HHMMSS`)
 2. Symlinks OS-specific config → `~/.config/zellij/config.kdl`
-3. Optionally downloads Zellij binary from GitHub Releases
+3. Downloads Zellij binary from GitHub Releases
+4. Installs terminal config (foot for Linux, alacritty for macOS)
+
+### Terminal Config
+
+**Linux**: Installs foot terminal config to `~/.config/foot/`
+**macOS**: Installs alacritty terminal config to `~/.config/alacritty/`
+
+#### Package Installation (Manual)
+
+**Foot (Linux)**
+```bash
+# Arch Linux
+sudo pacman -S foot
+
+# Debian/Ubuntu
+sudo apt install foot
+
+# Fedora
+sudo dnf install foot
+```
+
+**Alacritty (macOS)**
+```bash
+brew install alacritty
+```
 
 ## Configuration
 
@@ -46,6 +81,12 @@ Edit these instead:
 - `config.Darwin.kdl` - macOS keybindings (secondary_modifier "Shift+Cmd")
 
 After editing, run `./install.sh` to apply.
+
+### Terminal Configuration
+
+**Foot (Linux)**: Edit `foot/foot.ini` and `foot/dank-colors.ini` in this repo, then run `./install.sh --terminal-only`
+
+**Alacritty (macOS)**: Edit `alacritty/alacritty.toml` and `alacritty/dank-theme.toml` in this repo, then run `./install.sh --terminal-only`
 
 ## Keybindings Summary
 
@@ -66,8 +107,11 @@ See `config.Linux.kdl` or `config.Darwin.kdl` for full keybind documentation.
 # Check active config symlink
 ls -la ~/.config/zellij/config.kdl
 
-# Re-run installer
+# Re-run full installer (zellij + terminal)
 ./install.sh
+
+# Install terminal config only
+./install.sh --terminal-only
 
 # View git status (should be clean after install)
 git status
@@ -83,4 +127,8 @@ Preloaded plugins:
 
 ## Backup
 
-Old configs are backed up with timestamp format: `config.kdl.backup.YYYYMMDD-HHMMSS`
+Old configs are backed up with timestamp format: `*.backup.YYYYMMDD-HHMMSS`
+
+Zellij: `config.kdl.backup.YYYYMMDD-HHMMSS`
+Foot: `foot.ini.backup.YYYYMMDD-HHMMSS`
+Alacritty: `alacritty.toml.backup.YYYYMMDD-HHMMSS`
