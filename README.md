@@ -8,11 +8,11 @@ Cross-platform Zellij configuration with OS-specific keybindings for Linux and m
 .config/zellij/
 ├── config.Linux.kdl     # Linux keybindings + shared config (plugins, global options)
 ├── config.Darwin.kdl    # macOS keybindings + shared config (plugins, global options)
-├── install.sh            # OS-aware installer (zellij + terminal config)
-├── foot/                 # Foot terminal config (Linux)
+├── install.sh            # OS-aware installer (zellij + terminal setup)
+├── foot/                 # Foot terminal setup source (Linux)
 │   ├── foot.ini
 │   └── dank-colors.ini
-├── alacritty/           # Alacritty terminal config (macOS)
+├── alacritty/           # Alacritty terminal setup source (macOS)
 │   └── alacritty.toml
 ├── tests/                # Test suite
 │   ├── terminal-install.bats
@@ -23,7 +23,7 @@ Cross-platform Zellij configuration with OS-specific keybindings for Linux and m
 ## Installation
 
 ```bash
-# Clone and install (auto-detects OS, installs zellij + terminal config)
+# Clone and install (auto-detects OS, installs zellij + terminal setup + shell autostart)
 git clone https://github.com/farislr/zellij-dotfiles.git ~/.config/zellij
 cd ~/.config/zellij && ./install.sh
 
@@ -32,10 +32,11 @@ cd ~/.config/zellij && ./install.sh
 ./install.sh darwin
 
 # Install options
-./install.sh --config-only      # Zellij config only (skip binary + terminal)
-./install.sh --binary-only      # Zellij binary only (skip config + terminal)
-./install.sh --terminal-only    # Terminal config only (skip zellij)
-./install.sh --no-terminal      # Skip terminal config
+./install.sh --config-only      # Zellij config only (skip zellij binary + terminal setup)
+./install.sh --binary-only      # Zellij binary only (skip config + terminal setup)
+./install.sh --terminal-only    # Terminal setup only (skip zellij config + binary)
+./install.sh --no-terminal      # Skip terminal setup
+./install.sh --autostart        # Also add shell autostart when using a scoped install mode
 ./install.sh --version v0.40.0  # Install specific Zellij version
 ```
 
@@ -43,31 +44,22 @@ The installer:
 1. Backs up existing config with timestamp (`config.kdl.backup.YYYYMMDD-HHMMSS`)
 2. Symlinks OS-specific config → `~/.config/zellij/config.kdl`
 3. Downloads Zellij binary from GitHub Releases
-4. Installs terminal config (foot for Linux, alacritty for macOS)
+4. Installs terminal setup (terminal binary + config)
+5. Appends managed bash/zsh autostart snippets on full installs
 
-### Terminal Config
+### Terminal Setup
 
-**Linux**: Installs foot terminal config to `~/.config/foot/`
-**macOS**: Installs alacritty terminal config to `~/.config/alacritty/`
+Whenever terminal setup runs (including `./install.sh --terminal-only`), the installer manages both the terminal binary and the repo's terminal config files.
 
-#### Package Installation (Manual)
+**Linux**
+- Installs Foot with `apt-get`, `apt`, `dnf`, or `pacman`
+- Copies `foot/foot.ini` and `foot/dank-colors.ini` to `~/.config/foot/`
+- Fails with a clear error if none of those package managers are available or if Foot must be installed with elevated privileges first; after that, rerun this installer as your normal user
 
-**Foot (Linux)**
-```bash
-# Arch Linux
-sudo pacman -S foot
-
-# Debian/Ubuntu
-sudo apt install foot
-
-# Fedora
-sudo dnf install foot
-```
-
-**Alacritty (macOS)**
-```bash
-brew install alacritty
-```
+**macOS**
+- Installs Alacritty with Homebrew
+- Copies `alacritty/alacritty.toml` to `~/.config/alacritty/`
+- Fails with a clear error if `brew` is unavailable
 
 ## Configuration
 
@@ -79,7 +71,17 @@ Edit these instead:
 
 After editing, run `./install.sh` to apply.
 
-### Terminal Configuration
+### Shell Autostart
+
+Full installs already append a managed Zellij autostart snippet to `~/.bashrc` and `~/.zshrc`.
+
+Use `./install.sh --autostart` if you also want that shell integration during a scoped install such as `--terminal-only`, `--config-only`, or `--binary-only`.
+
+For example: `./install.sh --terminal-only --autostart`
+
+The installer uses Zellij's documented shell integration via `eval "$(zellij setup --generate-auto-start bash)"` and `eval "$(zellij setup --generate-auto-start zsh)"`, wrapped in an interactive-shell check and a `zellij`-exists guard.
+
+### Terminal Configuration Sources
 
 **Foot (Linux)**: Edit `foot/foot.ini` and `foot/dank-colors.ini` in this repo, then run `./install.sh --terminal-only`
 
@@ -104,10 +106,10 @@ See `config.Linux.kdl` or `config.Darwin.kdl` for full keybind documentation.
 # Check active config symlink
 ls -la ~/.config/zellij/config.kdl
 
-# Re-run full installer (zellij + terminal)
+# Re-run full installer (zellij + terminal setup)
 ./install.sh
 
-# Install terminal config only
+# Install terminal setup only
 ./install.sh --terminal-only
 
 # View git status (should be clean after install)
