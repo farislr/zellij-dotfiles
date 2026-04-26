@@ -4,13 +4,14 @@
 # Installs OS-specific Zellij configuration via symlink and optional binary download
 #
 # Usage:
-#   ./install.sh                              # Auto-detect OS, install all (zellij + binary + terminal)
-#   ./install.sh linux                        # Force Linux (zellij + binary + terminal)
-#   ./install.sh darwin                       # Force macOS (zellij + binary + terminal)
+#   ./install.sh                              # Auto-detect OS, install all (zellij + binary + terminal + autostart)
+#   ./install.sh linux                        # Force Linux (zellij + binary + terminal + autostart)
+#   ./install.sh darwin                       # Force macOS (zellij + binary + terminal + autostart)
 #   ./install.sh --config-only                # Zellij config only (skip binary + terminal)
 #   ./install.sh --binary-only                # Zellij binary only (skip config + terminal)
-#   ./install.sh --terminal-only              # Terminal config only (skip zellij)
-#   ./install.sh --no-terminal               # Skip terminal config
+#   ./install.sh --terminal-only              # Terminal setup only (skip zellij)
+#   ./install.sh --no-terminal               # Skip terminal setup
+#   ./install.sh --autostart                  # Add guarded Zellij autostart to ~/.bashrc and ~/.zshrc
 #   ./install.sh --version v0.40.0            # Install config + binary + terminal (pinned version)
 #   ./install.sh --binary-dir "$HOME/bin"     # Custom binary install directory
 #
@@ -19,7 +20,8 @@
 #   2. Backup existing config if present
 #   3. Symlink the appropriate OS-specific config to ~/.config/zellij/config.kdl
 #   4. Download and install the Zellij binary from GitHub Releases
-#   5. Install terminal config (foot for Linux, alacritty for macOS)
+#   5. Install terminal setup (terminal binary + config)
+#   6. Configure shell autostart for interactive local shells on full installs
 #
 
 set -euo pipefail
@@ -33,6 +35,7 @@ ZELLIJ_VERSION=""
 INSTALL_BINARY=true
 INSTALL_CONFIG=true
 INSTALL_TERMINAL=true
+INSTALL_AUTOSTART=true
 
 # Colors for output
 RED='\033[0;31m'
@@ -55,25 +58,29 @@ log_error() {
 
 # Show usage
 usage() {
-  echo "Usage: $0 [linux|darwin] [options]"
+  local exit_code="${1:-1}"
+
+  echo "Usage:"
+  echo "  $0 [linux|darwin] [options]"
   echo ""
   echo "Options:"
   echo "  linux              Force Linux configuration"
   echo "  darwin             Force macOS configuration"
-  echo "  --config-only      Install config only (skip binary + terminal)"
-  echo "  --binary-only      Install binary only (skip config + terminal)"
-  echo "  --terminal-only    Install terminal config only (skip zellij)"
-  echo "  --no-terminal      Skip terminal config installation"
+  echo "  --config-only      Install config only (skip zellij binary + terminal setup)"
+  echo "  --binary-only      Install Zellij binary only (skip config + terminal setup)"
+  echo "  --terminal-only    Install terminal setup only (skip zellij config + binary)"
+  echo "  --no-terminal      Skip terminal setup"
+  echo "  --autostart        Add guarded Zellij autostart to ~/.bashrc and ~/.zshrc"
   echo "  --version VERSION  Install specific Zellij version"
   echo "  --binary-dir PATH  Install binary into PATH (default: $HOME/.local/bin)"
   echo "  -h, --help         Show this help message"
   echo ""
-  echo "Default: installs zellij config + binary + terminal config"
+  echo "Default: installs zellij config + binary + terminal setup + shell autostart"
   echo ""
-  echo "Terminal config:"
-  echo "  Linux:   foot terminal config from \$REPO_DIR/foot/"
-  echo "  macOS:   alacritty terminal config from \$REPO_DIR/alacritty/"
-  exit 1
+  echo "Terminal setup:"
+  echo "  Linux:   install Foot via apt-get/apt, dnf, or pacman, then copy config from \$REPO_DIR/foot/"
+  echo "  macOS:   install Alacritty via Homebrew, then copy config from \$REPO_DIR/alacritty/"
+  exit "$exit_code"
 }
 
 # Detect OS
@@ -225,10 +232,159 @@ backup_file() {
   fi
 }
 
+backup_shell_rc_file() {
+  local file_path="$1"
+  if [ -e "$file_path" ] || [ -L "$file_path" ]; then
+    local backup_path
+    backup_path="${file_path}.backup.$(date +%Y%m%d-%H%M%S)"
+    log_info "Backing up existing shell rc file to: $backup_path"
+
+    if [ -L "$file_path" ]; then
+      cp -aL "$file_path" "$backup_path"
+    else
+      cp -a "$file_path" "$backup_path"
+    fi
+  fi
+}
+
+append_autostart_snippet() {
+  local rc_file="$1"
+  local shell_name="$2"
+  local marker_start="# >>> zellij-autostart (managed by zellij-dotfiles) >>>"
+
+  if [ -f "$rc_file" ] && grep -Fq "$marker_start" "$rc_file"; then
+    log_info "Zellij autostart already configured in: $rc_file"
+    return 0
+  fi
+
+  if [ -f "$rc_file" ] || [ -L "$rc_file" ]; then
+    backup_shell_rc_file "$rc_file"
+  fi
+
+  mkdir -p "$(dirname "$rc_file")"
+  touch "$rc_file"
+
+  if [ -s "$rc_file" ]; then
+    printf '\n' >>"$rc_file"
+  fi
+
+  cat <<EOF >>"$rc_file"
+# >>> zellij-autostart (managed by zellij-dotfiles) >>>
+if [[ \$- == *i* ]] && [ -z "\${SSH_CONNECTION:-}\${SSH_CLIENT:-}\${SSH_TTY:-}" ] && command -v zellij >/dev/null 2>&1; then
+  eval "\$(zellij setup --generate-auto-start ${shell_name})"
+fi
+# <<< zellij-autostart <<<
+EOF
+
+  log_info "Configured Zellij autostart in: $rc_file"
+}
+
+install_shell_autostart() {
+  append_autostart_snippet "$HOME/.bashrc" "bash"
+  append_autostart_snippet "$HOME/.zshrc" "zsh"
+
+  log_info "Done! Zellij autostart configured for interactive local bash/zsh shells"
+}
+
+# Detect supported Linux package manager for Foot
+detect_foot_package_manager() {
+  if command -v apt-get >/dev/null 2>&1; then
+    echo "apt-get"
+    return 0
+  fi
+
+  if command -v apt >/dev/null 2>&1; then
+    echo "apt"
+    return 0
+  fi
+
+  if command -v dnf >/dev/null 2>&1; then
+    echo "dnf"
+    return 0
+  fi
+
+  if command -v pacman >/dev/null 2>&1; then
+    echo "pacman"
+    return 0
+  fi
+
+  echo ""
+}
+
+check_foot_install_prerequisites() {
+  local package_manager=""
+
+  if command -v foot >/dev/null 2>&1; then
+    return 0
+  fi
+
+  package_manager=$(detect_foot_package_manager)
+  if [ -z "$package_manager" ]; then
+    log_error "Foot installation is only supported with apt-get, apt, dnf, or pacman"
+    exit 1
+  fi
+
+  if [ "$(id -u)" -ne 0 ]; then
+    log_error "Installing Foot via ${package_manager} requires elevated privileges; install Foot first, then rerun this installer as your normal user"
+    exit 1
+  fi
+}
+
+install_foot_binary() {
+  local package_manager=""
+
+  if command -v foot >/dev/null 2>&1; then
+    log_info "Foot is already available: $(command -v foot)"
+    return 0
+  fi
+
+  check_foot_install_prerequisites
+
+  package_manager=$(detect_foot_package_manager)
+
+  log_info "Installing Foot via ${package_manager}"
+  case "$package_manager" in
+  apt-get)
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y foot; then
+      log_error "Failed to install Foot with apt-get"
+      exit 1
+    fi
+    ;;
+  apt)
+    if ! DEBIAN_FRONTEND=noninteractive apt install -y foot; then
+      log_error "Failed to install Foot with apt"
+      exit 1
+    fi
+    ;;
+  dnf)
+    if ! dnf install -y foot; then
+      log_error "Failed to install Foot with dnf"
+      exit 1
+    fi
+    ;;
+  pacman)
+    if ! pacman -S --noconfirm foot; then
+      log_error "Failed to install Foot with pacman"
+      exit 1
+    fi
+    ;;
+  esac
+
+  if ! command -v foot >/dev/null 2>&1; then
+    log_error "Foot installation completed but the foot binary is still unavailable in PATH"
+    exit 1
+  fi
+
+  log_info "Done! Foot installed via ${package_manager}"
+}
+
 # Install foot terminal config (Linux)
 install_foot_config() {
   local src_dir="${REPO_DIR}/foot"
   local target_dir="${XDG_CONFIG_HOME:-$HOME/.config}/foot"
+  local file=""
+  local src_file=""
+  local target_file=""
 
   if [ ! -d "$src_dir" ]; then
     log_error "Foot config source not found: $src_dir"
@@ -256,6 +412,47 @@ install_foot_config() {
   done
 
   log_info "Done! Foot config installed to: $target_dir"
+}
+
+install_alacritty_binary() {
+  if command -v alacritty >/dev/null 2>&1; then
+    log_info "Alacritty is already available: $(command -v alacritty)"
+    return 0
+  fi
+
+  if ! command -v brew >/dev/null 2>&1; then
+    log_error "Homebrew is required to install Alacritty on macOS"
+    exit 1
+  fi
+
+  log_info "Installing Alacritty via Homebrew"
+  if ! brew install alacritty; then
+    log_error "Failed to install Alacritty with Homebrew"
+    exit 1
+  fi
+
+  if ! command -v alacritty >/dev/null 2>&1; then
+    log_error "Alacritty installation completed but the alacritty binary is still unavailable in PATH"
+    exit 1
+  fi
+
+  log_info "Done! Alacritty installed via Homebrew"
+}
+
+preflight_terminal_setup() {
+  local os="$1"
+
+  case "$os" in
+  linux)
+    check_foot_install_prerequisites
+    ;;
+  darwin)
+    if ! command -v alacritty >/dev/null 2>&1 && ! command -v brew >/dev/null 2>&1; then
+      log_error "Homebrew is required to install Alacritty on macOS"
+      exit 1
+    fi
+    ;;
+  esac
 }
 
 # Install alacritty terminal config (macOS)
@@ -287,9 +484,25 @@ install_alacritty_config() {
   log_info "Done! Alacritty config installed to: $target_dir"
 }
 
-# Install terminal config based on OS
-install_terminal_config() {
+# Install terminal binary based on OS
+install_terminal_binary() {
   local os="$1"
+  case "$os" in
+  linux)
+    install_foot_binary
+    ;;
+  darwin)
+    install_alacritty_binary
+    ;;
+  esac
+}
+
+# Install terminal setup based on OS
+install_terminal_setup() {
+  local os="$1"
+
+  install_terminal_binary "$os"
+
   case "$os" in
   linux)
     install_foot_config
@@ -339,7 +552,7 @@ install_binary() {
   local backup_path=""
 
   cleanup_binary_install() {
-    if [ -n "$tmp_dir" ] && [ -d "$tmp_dir" ]; then
+    if [ -n "${tmp_dir:-}" ] && [ -d "$tmp_dir" ]; then
       rm -rf "$tmp_dir"
     fi
   }
@@ -410,6 +623,8 @@ install_binary() {
 main() {
   local os=""
   local config_file=""
+  local scoped_install=false
+  local autostart_explicit=false
 
   # Parse arguments
   while [ $# -gt 0 ]; do
@@ -424,24 +639,30 @@ main() {
     --config-only)
       INSTALL_BINARY=false
       INSTALL_TERMINAL=false
+      scoped_install=true
       ;;
     --binary-only)
       INSTALL_BINARY=true
       INSTALL_CONFIG=false
       INSTALL_TERMINAL=false
+      scoped_install=true
       ;;
     --terminal-only)
       INSTALL_BINARY=false
       INSTALL_CONFIG=false
       INSTALL_TERMINAL=true
+      scoped_install=true
       ;;
     --no-terminal)
       INSTALL_TERMINAL=false
       ;;
+    --autostart)
+      autostart_explicit=true
+      ;;
     --version)
       if [ $# -lt 2 ]; then
         log_error "Missing value for --version"
-        usage
+        usage 1
       fi
       ZELLIJ_VERSION="$2"
       INSTALL_BINARY=true
@@ -450,25 +671,35 @@ main() {
     --binary-dir)
       if [ $# -lt 2 ]; then
         log_error "Missing value for --binary-dir"
-        usage
+        usage 1
       fi
       BINARY_DIR="$2"
       shift
       ;;
     -h | --help | help)
-      usage
+      usage 0
       ;;
     *)
       log_error "Unknown argument: $1"
-      usage
+      usage 1
       ;;
     esac
     shift
   done
 
+  if [ "$scoped_install" = true ] && [ "$autostart_explicit" = false ]; then
+    INSTALL_AUTOSTART=false
+  else
+    INSTALL_AUTOSTART=true
+  fi
+
   if [ -z "$os" ]; then
     os=$(detect_os)
     log_info "Detected OS: $os"
+  fi
+
+  if [ "$INSTALL_TERMINAL" = true ]; then
+    preflight_terminal_setup "$os"
   fi
 
   if [ "$INSTALL_CONFIG" = true ]; then
@@ -492,13 +723,17 @@ main() {
   fi
 
   if [ "$INSTALL_TERMINAL" = true ]; then
-    log_info "Installing terminal config for $os"
-    install_terminal_config "$os"
+    log_info "Installing terminal setup for $os"
+    install_terminal_setup "$os"
   fi
 
   if [ "$INSTALL_BINARY" = true ]; then
     install_binary "$os" "$ZELLIJ_VERSION" "$BINARY_DIR"
     log_info "Add $BINARY_DIR to PATH if it is not already available in your shell."
+  fi
+
+  if [ "$INSTALL_AUTOSTART" = true ]; then
+    install_shell_autostart
   fi
 }
 
