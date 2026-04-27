@@ -59,7 +59,7 @@ setup_full_install_stub_bin() {
     [ "$status" -ne 0 ]
 }
 
-@test "default install adds documented zellij integration to bash and zsh rc files" {
+@test "default install adds documented zellij integration to bash rc when SHELL is bash" {
     local repo_dir
     repo_dir="$(get_repo_dir)"
     local script="${repo_dir}/install.sh"
@@ -67,11 +67,11 @@ setup_full_install_stub_bin() {
 
     setup_full_install_stub_bin "$stub_bin"
 
-    PATH="$stub_bin" run "$script"
+    SHELL=/bin/bash PATH="$stub_bin" run "$script"
     [ "$status" -eq 0 ]
 
     [ -f "${HOME}/.bashrc" ]
-    [ -f "${HOME}/.zshrc" ]
+    [ ! -f "${HOME}/.zshrc" ]
     [ -x "${stub_bin}/foot" ]
     [ -f "${XDG_CONFIG_HOME}/foot/foot.ini" ]
     [ -f "${XDG_CONFIG_HOME}/foot/dank-colors.ini" ]
@@ -80,9 +80,26 @@ setup_full_install_stub_bin() {
     grep -Fq '[[ $- == *i* ]]' "${HOME}/.bashrc"
     grep -Fq '${SSH_CONNECTION:-}${SSH_CLIENT:-}${SSH_TTY:-}' "${HOME}/.bashrc"
     grep -Fq 'command -v zellij >/dev/null 2>&1' "${HOME}/.bashrc"
+    grep -Fq 'export ZELLIJ_AUTO_EXIT=true' "${HOME}/.bashrc"
     grep -Fq 'eval "$(zellij setup --generate-auto-start bash)"' "${HOME}/.bashrc"
+}
+
+@test "default install adds documented zellij integration to zsh rc when SHELL is zsh" {
+    local repo_dir
+    repo_dir="$(get_repo_dir)"
+    local script="${repo_dir}/install.sh"
+    local stub_bin="${HOME}/bin"
+
+    setup_full_install_stub_bin "$stub_bin"
+
+    SHELL=/bin/zsh PATH="$stub_bin" run "$script"
+    [ "$status" -eq 0 ]
+
+    [ ! -f "${HOME}/.bashrc" ]
+    [ -f "${HOME}/.zshrc" ]
 
     grep -Fq '# >>> zellij-autostart (managed by zellij-dotfiles) >>>' "${HOME}/.zshrc"
+    grep -Fq 'export ZELLIJ_AUTO_EXIT=true' "${HOME}/.zshrc"
     grep -Fq 'eval "$(zellij setup --generate-auto-start zsh)"' "${HOME}/.zshrc"
 }
 
@@ -91,72 +108,98 @@ setup_full_install_stub_bin() {
     repo_dir="$(get_repo_dir)"
     local script="${repo_dir}/install.sh"
     local bash_count
-    local zsh_count
     local stub_bin="${HOME}/bin"
 
     setup_full_install_stub_bin "$stub_bin"
 
-    PATH="$stub_bin" run "$script"
+    SHELL=/bin/bash PATH="$stub_bin" run "$script"
     [ "$status" -eq 0 ]
 
-    PATH="$stub_bin" run "$script"
+    SHELL=/bin/bash PATH="$stub_bin" run "$script"
     [ "$status" -eq 0 ]
 
     bash_count=$(grep -cF '# >>> zellij-autostart (managed by zellij-dotfiles) >>>' "${HOME}/.bashrc")
-    zsh_count=$(grep -cF '# >>> zellij-autostart (managed by zellij-dotfiles) >>>' "${HOME}/.zshrc")
     [ "$bash_count" -eq 1 ]
-    [ "$zsh_count" -eq 1 ]
+    [ ! -f "${HOME}/.zshrc" ]
 }
 
-@test "existing rc files are backed up during default autostart setup" {
+@test "existing bash rc file is backed up during default autostart setup" {
     local repo_dir
     repo_dir="$(get_repo_dir)"
     local script="${repo_dir}/install.sh"
     local bash_backup_count
-    local zsh_backup_count
     local stub_bin="${HOME}/bin"
 
     setup_full_install_stub_bin "$stub_bin"
 
     echo "# existing bash config" > "${HOME}/.bashrc"
-    echo "# existing zsh config" > "${HOME}/.zshrc"
 
-    PATH="$stub_bin" run "$script"
+    SHELL=/bin/bash PATH="$stub_bin" run "$script"
     [ "$status" -eq 0 ]
 
     bash_backup_count=$(find "$HOME" -maxdepth 1 -name '.bashrc.backup.*' | wc -l)
-    zsh_backup_count=$(find "$HOME" -maxdepth 1 -name '.zshrc.backup.*' | wc -l)
     [ "$bash_backup_count" -ge 1 ]
+}
+
+@test "existing zsh rc file is backed up during default autostart setup" {
+    local repo_dir
+    repo_dir="$(get_repo_dir)"
+    local script="${repo_dir}/install.sh"
+    local zsh_backup_count
+    local stub_bin="${HOME}/bin"
+
+    setup_full_install_stub_bin "$stub_bin"
+
+    echo "# existing zsh config" > "${HOME}/.zshrc"
+
+    SHELL=/bin/zsh PATH="$stub_bin" run "$script"
+    [ "$status" -eq 0 ]
+
+    zsh_backup_count=$(find "$HOME" -maxdepth 1 -name '.zshrc.backup.*' | wc -l)
     [ "$zsh_backup_count" -ge 1 ]
 }
 
-@test "symlinked rc files get real content backups during default autostart setup" {
+@test "symlinked bash rc file gets a real-content backup during default autostart setup" {
     local repo_dir
     repo_dir="$(get_repo_dir)"
     local script="${repo_dir}/install.sh"
     local bash_target="${HOME}/bashrc-source"
-    local zsh_target="${HOME}/zshrc-source"
     local bash_backup
-    local zsh_backup
     local stub_bin="${HOME}/bin"
 
     setup_full_install_stub_bin "$stub_bin"
 
     printf '# bash target\n' > "$bash_target"
-    printf '# zsh target\n' > "$zsh_target"
     ln -s "$bash_target" "${HOME}/.bashrc"
-    ln -s "$zsh_target" "${HOME}/.zshrc"
 
-    PATH="$stub_bin" run "$script"
+    SHELL=/bin/bash PATH="$stub_bin" run "$script"
     [ "$status" -eq 0 ]
 
     bash_backup=$(find "$HOME" -maxdepth 1 -name '.bashrc.backup.*' | head -n 1)
-    zsh_backup=$(find "$HOME" -maxdepth 1 -name '.zshrc.backup.*' | head -n 1)
     [ -n "$bash_backup" ]
-    [ -n "$zsh_backup" ]
     [ ! -L "$bash_backup" ]
-    [ ! -L "$zsh_backup" ]
     grep -Fq '# bash target' "$bash_backup"
+}
+
+@test "symlinked zsh rc file gets a real-content backup during default autostart setup" {
+    local repo_dir
+    repo_dir="$(get_repo_dir)"
+    local script="${repo_dir}/install.sh"
+    local zsh_target="${HOME}/zshrc-source"
+    local zsh_backup
+    local stub_bin="${HOME}/bin"
+
+    setup_full_install_stub_bin "$stub_bin"
+
+    printf '# zsh target\n' > "$zsh_target"
+    ln -s "$zsh_target" "${HOME}/.zshrc"
+
+    SHELL=/bin/zsh PATH="$stub_bin" run "$script"
+    [ "$status" -eq 0 ]
+
+    zsh_backup=$(find "$HOME" -maxdepth 1 -name '.zshrc.backup.*' | head -n 1)
+    [ -n "$zsh_backup" ]
+    [ ! -L "$zsh_backup" ]
     grep -Fq '# zsh target' "$zsh_backup"
 }
 
@@ -175,7 +218,7 @@ setup_full_install_stub_bin() {
     [ ! -f "${HOME}/.zshrc" ]
 }
 
-@test "--autostart still enables shell integration for scoped installs" {
+@test "--autostart still enables bash shell integration for scoped installs when SHELL is bash" {
     local repo_dir
     repo_dir="$(get_repo_dir)"
     local script="${repo_dir}/install.sh"
@@ -183,10 +226,10 @@ setup_full_install_stub_bin() {
 
     setup_linux_terminal_stub_bin "$stub_bin"
 
-    PATH="$stub_bin" run "$script" --autostart --terminal-only
+    SHELL=/bin/bash PATH="$stub_bin" run "$script" --autostart --terminal-only
     [ "$status" -eq 0 ]
     [ -f "${HOME}/.bashrc" ]
-    [ -f "${HOME}/.zshrc" ]
+    [ ! -f "${HOME}/.zshrc" ]
 }
 
 @test "scoped install autostart override is order-independent" {
@@ -197,10 +240,10 @@ setup_full_install_stub_bin() {
 
     setup_linux_terminal_stub_bin "$stub_bin"
 
-    PATH="$stub_bin" run "$script" --terminal-only --autostart
+    SHELL=/bin/bash PATH="$stub_bin" run "$script" --terminal-only --autostart
     [ "$status" -eq 0 ]
     [ -f "${HOME}/.bashrc" ]
-    [ -f "${HOME}/.zshrc" ]
+    [ ! -f "${HOME}/.zshrc" ]
 }
 
 @test "--autostart also enables shell integration for --config-only" {
@@ -208,10 +251,10 @@ setup_full_install_stub_bin() {
     repo_dir="$(get_repo_dir)"
     local script="${repo_dir}/install.sh"
 
-    run "$script" --config-only --autostart
+    SHELL=/bin/bash run "$script" --config-only --autostart
     [ "$status" -eq 0 ]
     [ -f "${HOME}/.bashrc" ]
-    [ -f "${HOME}/.zshrc" ]
+    [ ! -f "${HOME}/.zshrc" ]
 }
 
 @test "--autostart also enables shell integration for --binary-only" {
@@ -224,10 +267,55 @@ setup_full_install_stub_bin() {
     stub_zellij_release_tools "$stub_bin"
     export STUB_BIN="$stub_bin"
 
-    PATH="$stub_bin" run "$script" --binary-only --autostart
+    SHELL=/bin/bash PATH="$stub_bin" run "$script" --binary-only --autostart
     [ "$status" -eq 0 ]
     [ -f "${HOME}/.bashrc" ]
+    [ ! -f "${HOME}/.zshrc" ]
+}
+
+@test "unsupported SHELL skips autostart changes without failing the install" {
+    local repo_dir
+    repo_dir="$(get_repo_dir)"
+    local script="${repo_dir}/install.sh"
+    local stub_bin="${HOME}/bin"
+
+    setup_full_install_stub_bin "$stub_bin"
+
+    SHELL=/bin/fish PATH="$stub_bin" run "$script"
+    [ "$status" -eq 0 ]
+    [[ "$output" == *"Unsupported shell for Zellij autostart: fish"* ]]
+    [ ! -f "${HOME}/.bashrc" ]
+    [ ! -f "${HOME}/.zshrc" ]
+}
+
+@test "unset SHELL skips autostart changes without failing the install" {
+    local repo_dir
+    repo_dir="$(get_repo_dir)"
+    local script="${repo_dir}/install.sh"
+    local stub_bin="${HOME}/bin"
+
+    setup_full_install_stub_bin "$stub_bin"
+
+    env -u SHELL PATH="$stub_bin" "$script" >"${HOME}/install.log" 2>&1
+
+    grep -Fq 'SHELL is unset; skipping Zellij autostart configuration' "${HOME}/install.log"
+    [ ! -f "${HOME}/.bashrc" ]
+    [ ! -f "${HOME}/.zshrc" ]
+}
+
+@test "autostart target follows SHELL even when invoked from a different shell" {
+    local repo_dir
+    repo_dir="$(get_repo_dir)"
+    local script="${repo_dir}/install.sh"
+    local stub_bin="${HOME}/bin"
+
+    setup_full_install_stub_bin "$stub_bin"
+
+    SHELL=/bin/zsh PATH="$stub_bin" bash "$script"
+
+    [ ! -f "${HOME}/.bashrc" ]
     [ -f "${HOME}/.zshrc" ]
+    grep -Fq 'eval "$(zellij setup --generate-auto-start zsh)"' "${HOME}/.zshrc"
 }
 
 @test "--terminal-only installs Foot via apt-get and copies Linux config" {

@@ -11,7 +11,7 @@
 #   ./install.sh --binary-only                # Zellij binary only (skip config + terminal)
 #   ./install.sh --terminal-only              # Terminal setup only (skip zellij)
 #   ./install.sh --no-terminal               # Skip terminal setup
-#   ./install.sh --autostart                  # Add guarded Zellij autostart to ~/.bashrc and ~/.zshrc
+#   ./install.sh --autostart                  # Add guarded Zellij autostart to the rc file selected by $SHELL
 #   ./install.sh --version v0.40.0            # Install config + binary + terminal (pinned version)
 #   ./install.sh --binary-dir "$HOME/bin"     # Custom binary install directory
 #
@@ -21,7 +21,7 @@
 #   3. Symlink the appropriate OS-specific config to ~/.config/zellij/config.kdl
 #   4. Download and install the Zellij binary from GitHub Releases
 #   5. Install terminal setup (terminal binary + config)
-#   6. Configure shell autostart for interactive local shells on full installs
+#   6. Configure shell autostart for the interactive local shell selected by $SHELL on full installs
 #
 
 set -euo pipefail
@@ -70,7 +70,7 @@ usage() {
   echo "  --binary-only      Install Zellij binary only (skip config + terminal setup)"
   echo "  --terminal-only    Install terminal setup only (skip zellij config + binary)"
   echo "  --no-terminal      Skip terminal setup"
-  echo "  --autostart        Add guarded Zellij autostart to ~/.bashrc and ~/.zshrc"
+  echo "  --autostart        Add guarded Zellij autostart to the rc file selected by \$SHELL"
   echo "  --version VERSION  Install specific Zellij version"
   echo "  --binary-dir PATH  Install binary into PATH (default: $HOME/.local/bin)"
   echo "  -h, --help         Show this help message"
@@ -268,9 +268,10 @@ append_autostart_snippet() {
     printf '\n' >>"$rc_file"
   fi
 
-  cat <<EOF >>"$rc_file"
+cat <<EOF >>"$rc_file"
 # >>> zellij-autostart (managed by zellij-dotfiles) >>>
 if [[ \$- == *i* ]] && [ -z "\${SSH_CONNECTION:-}\${SSH_CLIENT:-}\${SSH_TTY:-}" ] && command -v zellij >/dev/null 2>&1; then
+  export ZELLIJ_AUTO_EXIT=true
   eval "\$(zellij setup --generate-auto-start ${shell_name})"
 fi
 # <<< zellij-autostart <<<
@@ -279,11 +280,43 @@ EOF
   log_info "Configured Zellij autostart in: $rc_file"
 }
 
-install_shell_autostart() {
-  append_autostart_snippet "$HOME/.bashrc" "bash"
-  append_autostart_snippet "$HOME/.zshrc" "zsh"
+detect_autostart_shell() {
+  local shell_path="${SHELL:-}"
+  local shell_name="${shell_path##*/}"
 
-  log_info "Done! Zellij autostart configured for interactive local bash/zsh shells"
+  case "$shell_name" in
+  bash)
+    printf 'bash:%s/.bashrc\n' "$HOME"
+    ;;
+  zsh)
+    printf 'zsh:%s/.zshrc\n' "$HOME"
+    ;;
+  "")
+    log_warn "SHELL is unset; skipping Zellij autostart configuration" >&2
+    return 1
+    ;;
+  *)
+    log_warn "Unsupported shell for Zellij autostart: $shell_name; skipping shell autostart configuration" >&2
+    return 1
+    ;;
+  esac
+}
+
+install_shell_autostart() {
+  local shell_config=""
+  local shell_name=""
+  local rc_file=""
+
+  if ! shell_config="$(detect_autostart_shell)"; then
+    return 0
+  fi
+
+  shell_name="${shell_config%%:*}"
+  rc_file="${shell_config#*:}"
+
+  append_autostart_snippet "$rc_file" "$shell_name"
+
+  log_info "Done! Zellij autostart configured for interactive local ${shell_name} shells"
 }
 
 # Detect supported Linux package manager for Foot

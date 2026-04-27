@@ -45,7 +45,7 @@ The installer:
 2. Symlinks OS-specific config → `~/.config/zellij/config.kdl`
 3. Downloads Zellij binary from GitHub Releases
 4. Installs terminal setup (terminal binary + config)
-5. Appends managed bash/zsh autostart snippets on full installs
+5. Appends a managed autostart snippet for your current shell on full installs
 
 ### Terminal Setup
 
@@ -73,13 +73,13 @@ After editing, run `./install.sh` to apply.
 
 ### Shell Autostart
 
-Full installs already append a managed Zellij autostart snippet to `~/.bashrc` and `~/.zshrc`.
+Full installs already append a managed Zellij autostart snippet to the rc file selected by `$SHELL`.
 
 Use `./install.sh --autostart` if you also want that shell integration during a scoped install such as `--terminal-only`, `--config-only`, or `--binary-only`.
 
 For example: `./install.sh --terminal-only --autostart`
 
-The installer uses Zellij's documented shell integration via `eval "$(zellij setup --generate-auto-start bash)"` and `eval "$(zellij setup --generate-auto-start zsh)"`, wrapped in an interactive-shell check and a `zellij`-exists guard.
+The installer currently supports `bash` and `zsh` by checking `$SHELL`, writing only the matching rc file, exporting `ZELLIJ_AUTO_EXIT=true`, and then running Zellij's documented `eval "$(zellij setup --generate-auto-start <shell>)"` integration inside an interactive-shell, local-shell, and `zellij`-exists guard. Unsupported or unset shells are left unchanged.
 
 ### Terminal Configuration Sources
 
